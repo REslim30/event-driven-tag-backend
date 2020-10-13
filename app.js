@@ -1,14 +1,14 @@
-var app = require('express')();
 var http = require('http').createServer();
 var io = require('socket.io')(http);
+var Rx = require('rx');
 
 
-io.on('connection', (socket) => {
-  socket.on('chat message', (msg) => {
-    io.emit('gameupdate', msg)
-    console.log('client sent: ' + msg)
-  })
-});
+Rx.Observable
+  .interval(1000)
+  .map(() => Math.floor(Math.random()*100))
+  .subscribe((number) => {
+    io.emit('random', number);
+  });
 
 
 http.listen(3000, () => {
