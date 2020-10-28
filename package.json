@@ -8,12 +8,15 @@
     "socket.io": "^2.3.0"
   },
   "devDependencies": {
+    "@types/node": "^14.14.5",
     "eslint": "^7.10.0",
     "mocha": "^8.2.0",
     "typescript": "^4.0.5"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npx typescript",
+    "clean": "rm -r --force ts-built/*",
+    "run": "npm run build; node ts-built/main.js"
   },
   "author": "",
   "license": "ISC"
