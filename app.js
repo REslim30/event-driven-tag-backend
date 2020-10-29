@@ -3,7 +3,6 @@ var io = require('socket.io')(server);
 var Rx = require('rxjs');
 var Op = require('rxjs/operators');
 
-
 io.on('connect', (socket) => {
   //One to one connection
   Rx.interval(1000)
