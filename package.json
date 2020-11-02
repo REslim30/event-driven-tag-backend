@@ -22,7 +22,7 @@
   "scripts": {
     "build": "npx typescript",
     "clean": "rm -r --force ts-built/*",
-    "run": "npm run build; node ts-built/main.js",
+    "run": "npm run build; node ts-built/connector.js",
     "test": "npm run build; npx mocha ts-built/tests/*.js"
   },
   "author": "",

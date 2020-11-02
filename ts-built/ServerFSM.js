@@ -1,10 +1,11 @@
 //Implementaiton of serverFSM you can find on logbook
 var ServerFSM = /** @class */ (function () {
-    function ServerFSM() {
+    function ServerFSM(server) {
         //State variables
         this.LOBBY = 0;
         this.GAME = 1;
         this.state = -1;
+        this.io = server;
         this.initialize();
         this.lobby = [];
     }
@@ -25,18 +26,20 @@ var ServerFSM = /** @class */ (function () {
                 break;
         }
     };
-    ServerFSM.prototype.clientConnect = function (name) {
+    ServerFSM.prototype.clientConnect = function (name, socket) {
         switch (this.state) {
             case this.LOBBY:
                 if (this.lobby.length < 5) {
                     this.lobby.push(name);
-                    return this.lobby.slice();
+                    this.io.emit("lobby", this.lobby);
                 }
                 else {
-                    return null;
+                    socket.disconnect(true);
                 }
+                return;
             case this.GAME:
-                return null;
+                socket.disconnect(true);
+                return;
             default:
                 throw Error("Undefined state in clientConnect: " + this.state);
         }
@@ -49,19 +52,21 @@ var ServerFSM = /** @class */ (function () {
                 // Throw error if name not found
                 if (idx == -1)
                     throw Error("Could not find lobby member: " + name);
-                // Otherwise return array
+                // Otherwise broadcast array
                 this.lobby.splice(idx, 1);
-                return this.lobby.slice();
+                this.io.emit("lobby", this.lobby);
+                return;
             case this.GAME:
                 idx = this.lobby.findIndex(function (element) { return element == name; });
                 // Throw error if name not found
                 if (idx == -1)
                     throw Error("Could not find lobby member: " + name);
                 this.lobby.splice(idx, 1);
+                // If lobby is empty then we should end game
                 if (this.lobby.length == 0) {
                     this.next(this.LOBBY);
                 }
-                return null;
+                return;
             default:
                 throw Error("Undefined state in clientDisconnect: " + this.state);
         }

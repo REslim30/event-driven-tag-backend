@@ -8,8 +8,10 @@ class ServerFSM {
 
   //Fields
   private lobby: Array<any>;
+  private io: SocketIO.Server;
 
-  constructor() {
+  constructor(server: SocketIO.Server) {
+    this.io = server;
     this.initialize();
     this.lobby = [];
   }
@@ -35,25 +37,27 @@ class ServerFSM {
     }
   }
 
-  public clientConnect(name: string): Array<any> | null {
+  public clientConnect(name: string, socket: SocketIO.Socket): void {
     switch (this.state) {
       case this.LOBBY:
         if (this.lobby.length < 5) {
           this.lobby.push(name);
-          return this.lobby.slice();
+          this.io.emit("lobby", this.lobby);
         } else {
-          return null;
+          socket.disconnect(true);
         }
+        return;
       
       case this.GAME:
-        return null;
+        socket.disconnect(true);
+        return;
       
       default:
         throw Error("Undefined state in clientConnect: " + this.state);
     }
   }
 
-  public clientDisconnect(name: string): Array<any> | null {
+  public clientDisconnect(name: string): void {
     let idx: number;
     switch (this.state) {
       case this.LOBBY:
@@ -63,9 +67,10 @@ class ServerFSM {
         if (idx == -1)
           throw Error("Could not find lobby member: " + name);
 
-        // Otherwise return array
+        // Otherwise broadcast array
         this.lobby.splice(idx, 1);
-        return this.lobby.slice();
+        this.io.emit("lobby", this.lobby);
+        return;
       
       case this.GAME:
         idx = this.lobby.findIndex((element) => element == name);
@@ -76,10 +81,11 @@ class ServerFSM {
 
         this.lobby.splice(idx, 1);
 
+        // If lobby is empty then we should end game
         if (this.lobby.length == 0) {
           this.next(this.LOBBY);
         }
-        return null;
+        return;
       
       default:
         throw Error("Undefined state in clientDisconnect: " + this.state);
