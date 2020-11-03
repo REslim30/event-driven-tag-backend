@@ -5,6 +5,8 @@ const Op = require("rxjs/operators");
 const io: SocketIO.Server = require("socket.io")(3000);
 const fsm = require("./ServerFSM");
 
+console.log("Listening on port: 3000");
+
 // Initialize ServerFSM instance
 let serverFSM: ServerFSM = new fsm(io);
 
@@ -39,15 +41,17 @@ let acceptedConnectionStream = connectionStream.pipe(
 // Register clientDisconnect and start and clientStart
 acceptedConnectionStream
   .subscribe((socket: SocketIO.Socket) => {
+    console.log("connected client: " + socket.handshake.query.name);
     // Register clientDisconnect
     Rx.fromEvent(socket, "disconnect")
       .subscribe((reason: string) => {
         console.log("client " + socket.handshake.query.name + " disconnected: " + reason);
         serverFSM.clientDisconnect(socket.handshake.query.name);
+        // Register update to lobby
       });
 
     // register clientStart
-    Rx.fromEvent(socket, "start")
+    Rx.fromEvent(socket, "startClick")
       .subscribe(() => {
         serverFSM.clientStart();
       });

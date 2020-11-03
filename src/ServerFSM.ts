@@ -1,3 +1,4 @@
+const game = require("./game");
 
 //Implementaiton of serverFSM you can find on logbook
 class ServerFSM {
@@ -28,7 +29,8 @@ class ServerFSM {
         break;
       
       case this.GAME:
-        console.log("Initializing Game");
+        this.io.emit("gameStart");
+        game.start(this.io);
         break;
       
       default:
@@ -44,6 +46,7 @@ class ServerFSM {
           this.lobby.push(name);
           this.io.emit("lobby", this.lobby);
         } else {
+          console.log("Server full. Reject connection: " + name);
           socket.disconnect(true);
         }
         return;
@@ -83,8 +86,10 @@ class ServerFSM {
 
         // If lobby is empty then we should end game
         if (this.lobby.length == 0) {
+          game.end();
           this.next(this.LOBBY);
         }
+        this.io.emit("lobby", this.lobby);
         return;
       
       default:
@@ -112,7 +117,7 @@ class ServerFSM {
   public gameEnd(): Array<any> | null {
     switch (this.state) {
       case this.GAME:
-        console.log("Ending Game");
+        game.end();
         return this.lobby.slice();
       
       default:
