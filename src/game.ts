@@ -1,8 +1,9 @@
 // Module that start and end an instance of a  game
 const { interval, fromEvent, from } = require("rxjs");
-const { map, filter, zip, take, scan } = require("rxjs/operators");
+const { map, filter, zip, take, scan, tap } = require("rxjs/operators");
 const playerLocations = require("./playerLocations");
-const _ = require("lodash");
+var _ = require("lodash");
+const tilemap = require("tilemap.ts");
 
 const TILE_SIZE = 8;
 
@@ -12,7 +13,17 @@ let server: SocketIO.Server;
 let connectionsToGame: any;
 
 // Data about specific characters
-const characterData: any = {
+let characterData: any;
+
+// List of observables to unsubscribe
+let observables: Array<any>;
+
+module.exports = {
+  start(io: SocketIO.Server) {
+    // Reset variables
+    server = io;
+    connectionsToGame = {};
+    characterData = {
       chasee: {},
       chaser0: {},
       chaser1: {},
@@ -20,10 +31,6 @@ const characterData: any = {
       chaser3: {}
     };
 
-module.exports = {
-  start(io: SocketIO.Server) {
-    server = io;
-    connectionsToGame = {};
 
     assignCharacterLocations();
 
@@ -31,20 +38,13 @@ module.exports = {
 
     getDirectionData();
 
-    interval(1000).pipe(
-      take(120),
-      scan((acc: number, cur: number): number => acc - 1, 121),
-      map((timeLeft: number): string => {
-        const sec = `${timeLeft%60}`;
-        return `${Math.trunc(timeLeft/60)}:${sec.padStart(2, "0")}`;
-      })
-    ).subscribe((timeLeft: string) => {
-      server.emit("timerUpdate", timeLeft);
-    });
+    sendTimerData();
+
+    updateMovementData();
   },
 
   end() {
-    console.log("Game Ended");  
+      
   }
 }
 
@@ -88,12 +88,76 @@ function assignRoles(server: SocketIO.Server) {
 function getDirectionData() {
   Object.values(server.sockets.connected)
     .forEach((socket: SocketIO.Socket) => {
-      fromEvent(socket, "directionChange").pipe(
+      const observable = fromEvent(socket, "directionChange").pipe(
         map((direction: string) => {
           return { player: connectionsToGame[socket.id].role, direction: direction };
         })
-      ).subscribe((playerDirection: any) => {
-        
+      )
+      observable.subscribe(({player, direction}) => {
+        characterData[player]["gamepadDirection"] = direction;
       });
+
+      observables.push(observable);
     });
+}
+
+function sendTimerData() {
+  const observable = interval(1000).pipe(
+    take(120),
+    scan((acc: number, cur: number): number => acc - 1, 121),
+    map((timeLeft: number): string => {
+      const sec = `${timeLeft%60}`;
+      return `${Math.trunc(timeLeft/60)}:${sec.padStart(2, "0")}`;
+    })
+  );
+  observable
+    .subscribe((timeLeft: string) => {
+      server.emit("timerUpdate", timeLeft);
+    });
+
+  return observable;
+}
+
+function updateMovementData() {
+  const observable = interval(55);
+  observable
+    .subscribe((value) => {
+      // Recalculate directions
+      if (value % 8 == 0) {
+        Object.keys(characterData)
+          .forEach((character) => {
+            characterData[character].actualDirection = characterData[character]?.gamepadDirection;
+          });
+      }
+
+      // Move one pixel
+      Object.keys(characterData)
+        .forEach((character) => {
+          switch (characterData[character].actualDirection) {
+            case "up":
+              characterData[character].y--;
+              break;
+
+            case "down":
+              characterData[character].y++;
+              break;
+
+            case "left":
+              characterData[character].x--;
+              break;
+
+            case "right":
+              characterData[character].x++;
+              break;
+            
+            default:
+              break;
+          }
+        })
+
+      // Emit a position update
+      server.emit("positionUpdate", characterData);
+    })
+
+    return observable;
 }
