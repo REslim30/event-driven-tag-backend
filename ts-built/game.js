@@ -3,7 +3,7 @@ var _a = require("rxjs"), interval = _a.interval, fromEvent = _a.fromEvent, from
 var _b = require("rxjs/operators"), map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap;
 var playerLocations = require("./playerLocations");
 var _ = require("lodash");
-var tilemap = require("tilemap.ts");
+var tilemap = require("./tilemap");
 var TILE_SIZE = 8;
 var server;
 // Map of socket-id to data about their player
@@ -72,7 +72,6 @@ function getDirectionData() {
             var player = _a.player, direction = _a.direction;
             characterData[player]["gamepadDirection"] = direction;
         });
-        observables.push(observable);
     });
 }
 function sendTimerData() {
@@ -92,11 +91,7 @@ function updateMovementData() {
         .subscribe(function (value) {
         // Recalculate directions
         if (value % 8 == 0) {
-            Object.keys(characterData)
-                .forEach(function (character) {
-                var _a;
-                characterData[character].actualDirection = (_a = characterData[character]) === null || _a === void 0 ? void 0 : _a.gamepadDirection;
-            });
+            setDirectionFromGamepad();
         }
         // Move one pixel
         Object.keys(characterData)
@@ -122,4 +117,60 @@ function updateMovementData() {
         server.emit("positionUpdate", characterData);
     });
     return observable;
+}
+function setDirectionFromGamepad() {
+    Object.keys(characterData)
+        .forEach(function (character) {
+        setActualDirection(character);
+        removeActualDirectionIfCantGo(character);
+    });
+}
+function setActualDirection(character) {
+    var gamepadDirection = characterData[character].gamepadDirection;
+    executeCallbackIfCanGo(character, gamepadDirection, function () {
+        characterData[character]["actualDirection"] = gamepadDirection;
+    });
+}
+// Stop moving if we can't go
+function removeActualDirectionIfCantGo(character) {
+    var actualDirection = characterData[character].actualDirection;
+    executeCallbackIfCanGo(character, actualDirection, function () { }, function () {
+        characterData[character]["actualDirection"] = undefined;
+    });
+}
+function executeCallbackIfCanGo(character, direction, callbackIfTrue, callbackIfFalse) {
+    if (callbackIfTrue === void 0) { callbackIfTrue = function () { }; }
+    if (callbackIfFalse === void 0) { callbackIfFalse = function () { }; }
+    var _a = characterData[character], x = _a.x, y = _a.y;
+    var tileX = Math.trunc(x / 8);
+    var tileY = Math.trunc(y / 8);
+    // Only change actual direction if we can move
+    switch (direction) {
+        case "up":
+            if (tilemap.canGo(tileX, tileY - 1))
+                callbackIfTrue();
+            else
+                callbackIfFalse();
+            return;
+        case "down":
+            if (tilemap.canGo(tileX, tileY + 1))
+                callbackIfTrue();
+            else
+                callbackIfFalse();
+            return;
+        case "left":
+            if (tilemap.canGo(tileX - 1, tileY))
+                callbackIfTrue();
+            else
+                callbackIfFalse();
+            return;
+        case "right":
+            if (tilemap.canGo(tileX + 1, tileY))
+                callbackIfTrue();
+            else
+                callbackIfFalse();
+            return;
+        default:
+            return;
+    }
 }

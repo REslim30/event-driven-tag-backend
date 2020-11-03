@@ -16,18 +16,21 @@ var coinSet = mapOfTileMaps["coins"].data.reduce(function (acc, cur, idx) {
     return acc;
 }, new Set());
 module.exports = {
-    tileMap: mapOfTileMaps,
     // Returns whether or not there is a coin on a particular tile
     tileHasCoin: function (x, y) {
         return coinSet.has(y * tileMap.width + x);
     },
+    // Removes a coin
+    removeCoin: function (x, y) {
+        coinSet["delete"](y * tileMap.width + x);
+    },
     // Returns whether or not a character can move to a tile
     canGo: function (x, y) {
-        return 0 != this.tileMap["bottom"].data[y * tileMap.width + x];
+        return 0 != mapOfTileMaps["bottom"].data[y * tileMap.width + x];
     }
 };
-for (var x = 0; x < 28; x++) {
-    for (var y = 0; y < 36; y++) {
-        console.log("x: " + x + "   y: " + y + "    has coin?    " + module.exports.tileHasCoin(x, y));
-    }
-}
+/* for (let x = 0; x < 28; x++) { */
+/*   for (let y = 0; y < 32; y++) { */
+/*     console.log(`x: ${x}    y:   ${y}   canGo?    ${module.exports.canGo(x, y)}`); */
+/*   } */
+/* } */

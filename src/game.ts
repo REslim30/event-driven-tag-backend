@@ -3,7 +3,7 @@ const { interval, fromEvent, from } = require("rxjs");
 const { map, filter, zip, take, scan, tap } = require("rxjs/operators");
 const playerLocations = require("./playerLocations");
 var _ = require("lodash");
-const tilemap = require("tilemap.ts");
+const tilemap = require("./tilemap");
 
 const TILE_SIZE = 8;
 
@@ -96,8 +96,6 @@ function getDirectionData() {
       observable.subscribe(({player, direction}) => {
         characterData[player]["gamepadDirection"] = direction;
       });
-
-      observables.push(observable);
     });
 }
 
@@ -124,10 +122,7 @@ function updateMovementData() {
     .subscribe((value) => {
       // Recalculate directions
       if (value % 8 == 0) {
-        Object.keys(characterData)
-          .forEach((character) => {
-            characterData[character].actualDirection = characterData[character]?.gamepadDirection;
-          });
+        setDirectionFromGamepad();
       }
 
       // Move one pixel
@@ -160,4 +155,67 @@ function updateMovementData() {
     })
 
     return observable;
+}
+
+function setDirectionFromGamepad() {
+  Object.keys(characterData)
+    .forEach((character) => {
+      setActualDirection(character);
+      removeActualDirectionIfCantGo(character);
+    });
+}
+
+function setActualDirection(character: string) {
+  const { gamepadDirection } = characterData[character];
+  executeCallbackIfCanGo(character, gamepadDirection, () => {
+    characterData[character]["actualDirection"] = gamepadDirection;
+  });
+}
+
+// Stop moving if we can't go
+function removeActualDirectionIfCantGo(character: string) {
+  const { actualDirection } = characterData[character];
+  executeCallbackIfCanGo(character, actualDirection, () => {}, () => {
+    characterData[character]["actualDirection"] = undefined;
+  });
+}
+
+function executeCallbackIfCanGo(character: string, direction: string | undefined, callbackIfTrue = ()=>{}, callbackIfFalse=()=>{}) {
+  const { x, y } = characterData[character];
+  const tileX = Math.trunc(x/8);
+  const tileY = Math.trunc(y/8);
+  // Only change actual direction if we can move
+  switch (direction) {
+    case "up":
+      if (tilemap.canGo(tileX,tileY-1))
+        callbackIfTrue();
+      else
+        callbackIfFalse();
+      return;
+    
+    case "down":
+      if (tilemap.canGo(tileX, tileY+1))
+        callbackIfTrue();
+      else
+        callbackIfFalse();
+      return
+    
+    case "left":
+      if (tilemap.canGo(tileX-1,tileY))
+        callbackIfTrue();
+      else
+        callbackIfFalse();
+      return;
+    
+    case "right":
+      if (tilemap.canGo(tileX+1,tileY))
+        callbackIfTrue();
+      else
+        callbackIfFalse();
+      return;
+    
+    default:
+      return;
+  }
+  
 }

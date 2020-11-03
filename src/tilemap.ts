@@ -32,7 +32,13 @@ module.exports = {
 
   // Returns whether or not a character can move to a tile
   canGo(x: number, y: number): boolean {
-    return 0 != this.tileMap["bottom"].data[y*tileMap.width + x];
+    return 0 != mapOfTileMaps["bottom"].data[y*tileMap.width + x];
   }
 }
 
+
+/* for (let x = 0; x < 28; x++) { */
+/*   for (let y = 0; y < 32; y++) { */
+/*     console.log(`x: ${x}    y:   ${y}   canGo?    ${module.exports.canGo(x, y)}`); */
+/*   } */
+/* } */
