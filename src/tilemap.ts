@@ -6,26 +6,33 @@ var _ = require("lodash");
 let rawdata = fs.readFileSync("../assets/ClassicMap.json");
 let tileMap = JSON.parse(rawdata);
 
-module.exports = {
-  tilemap: tileMap.layers.reduce((acc, cur) => {
-    acc[cur.name] = cur
-    return acc;
-  }, {}),
+let mapOfTileMaps = tileMap.layers.reduce((acc, cur) => {
+  acc[cur.name] = cur
+  return acc;
+}, {});
 
+// coinSet contains all the coins available.
+// Stored as y*tileMap.width + x;
+let coinSet: Set<number> = mapOfTileMaps["coins"].data.reduce((acc: Set<number>, cur: number, idx: number) => {
+  if (cur == 8)
+    acc.add(idx); 
+  return acc;
+}, new Set<number>());
+
+module.exports = {
   // Returns whether or not there is a coin on a particular tile
-  isCoin(tile: number): boolean {
-    return tile === 8;
+  tileHasCoin(x: number, y: number): boolean {
+    return coinSet.has(y*tileMap.width + x);
+  },
+
+  // Removes a coin
+  removeCoin(x: number, y: number): void {
+    coinSet.delete(y*tileMap.width + x);
   },
 
   // Returns whether or not a character can move to a tile
   canGo(x: number, y: number): boolean {
-    return 0 != this.tilemap["bottom"].data[y*tileMap.width + x];
+    return 0 != this.tileMap["bottom"].data[y*tileMap.width + x];
   }
 }
 
-
-for (let y = 0; y < 36; y++) {
-  for (let x = 0; x < 28; x++) {
-    console.log(`x: ${x} y: ${y}   canGo? ${module.exports.canGo(x, y)}`);
-  }
-}
