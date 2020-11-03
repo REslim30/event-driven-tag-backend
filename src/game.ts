@@ -1,36 +1,59 @@
 // Module that start and end an instance of a  game
-const { fromEvent, from } = require("rxjs");
-const { map, filter, zip } = require("rxjs/operators");
+const { interval, fromEvent, from } = require("rxjs");
+const { map, filter, zip, take, scan } = require("rxjs/operators");
 const playerLocations = require("./playerLocations");
 const _ = require("lodash");
+
+const TILE_SIZE = 8;
 
 let server: SocketIO.Server;
 
 // Map of socket-id to data about their player
 let connectionsToGame: any;
 
+// Data about specific characters
+const characterData: any = {
+      chasee: {},
+      chaser0: {},
+      chaser1: {},
+      chaser2: {},
+      chaser3: {}
+    };
+
 module.exports = {
   start(io: SocketIO.Server) {
     server = io;
     connectionsToGame = {};
 
+    assignCharacterLocations();
+
     assignRoles(server);
 
-    Object.values(server.sockets.connected)
-      .forEach((socket: SocketIO.Socket) => {
-        fromEvent(socket, "directionChange").pipe(
-          map((direction: string) => {
-            return { player: connectionsToGame[socket.id].role, direction: direction };
-          })
-        ).subscribe((obj: any) => {
-          console.log(obj);
-        });
-      });
+    getDirectionData();
+
+    interval(1000).pipe(
+      take(120),
+      scan((acc: number, cur: number): number => acc - 1, 121),
+      map((timeLeft: number): string => {
+        const sec = `${timeLeft%60}`;
+        return `${Math.trunc(timeLeft/60)}:${sec.padStart(2, "0")}`;
+      })
+    ).subscribe((timeLeft: string) => {
+      server.emit("timerUpdate", timeLeft);
+    });
   },
 
   end() {
     console.log("Game Ended");  
   }
+}
+
+function assignCharacterLocations() {
+  Object.entries(playerLocations)
+    .forEach(([key, value]) => {
+      characterData[key]['x'] = (<any>value).tileX*TILE_SIZE + (TILE_SIZE/2);
+      characterData[key]['y'] = (<any>value).tileY*TILE_SIZE + (TILE_SIZE/2);
+    });
 }
 
 // Assign roles to connected players. 
@@ -61,3 +84,16 @@ function assignRoles(server: SocketIO.Server) {
   });
 }
 
+// Stream direction data into connectionsToGame
+function getDirectionData() {
+  Object.values(server.sockets.connected)
+    .forEach((socket: SocketIO.Socket) => {
+      fromEvent(socket, "directionChange").pipe(
+        map((direction: string) => {
+          return { player: connectionsToGame[socket.id].role, direction: direction };
+        })
+      ).subscribe((playerDirection: any) => {
+        
+      });
+    });
+}
