@@ -18,14 +18,14 @@ var ServerFSM = /** @class */ (function () {
         switch (this.state) {
             case this.LOBBY:
                 console.log("Initializing lobby");
-                break;
+                return;
             case this.GAME:
                 this.io.emit("gameStart");
+                console.log("Starting Game");
                 game.start(this.io);
-                break;
+                return;
             default:
-                console.log("next default");
-                break;
+                throw Error("Unknown state in serverFSM: " + this.state);
         }
     };
     ServerFSM.prototype.clientConnect = function (name, socket) {
@@ -67,7 +67,6 @@ var ServerFSM = /** @class */ (function () {
                 this.lobby.splice(idx, 1);
                 // If lobby is empty then we should end game
                 if (this.lobby.length == 0) {
-                    game.end();
                     this.next(this.LOBBY);
                 }
                 this.io.emit("lobby", this.lobby);
@@ -92,10 +91,24 @@ var ServerFSM = /** @class */ (function () {
     ServerFSM.prototype.gameEnd = function () {
         switch (this.state) {
             case this.GAME:
-                game.end();
-                return this.lobby.slice();
+                console.log("Game Ended");
+                this.next(this.LOBBY);
+                return;
+            case this.LOBBY:
+                return;
             default:
-                throw Error("Undefined state in clientStart: " + this.state);
+                throw Error("Undefined state in gameEnd" + this.state);
+        }
+    };
+    ServerFSM.prototype.lobbyRequest = function (socket) {
+        switch (this.state) {
+            case this.LOBBY:
+                socket.emit("lobby", this.lobby);
+                return;
+            case this.GAME:
+                return;
+            default:
+                throw Error("Undefined state in lobbyRequest" + this.state);
         }
     };
     return ServerFSM;

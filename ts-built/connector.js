@@ -7,6 +7,7 @@ var fsm = require("./ServerFSM");
 console.log("Listening on port: 3000");
 // Initialize ServerFSM instance
 var serverFSM = new fsm(io);
+global['serverFSM'] = serverFSM;
 // Listen to connection events
 var connectionStream = Rx.fromEvent(io, "connection");
 // Reject any connections that do not include a name as query param
@@ -42,5 +43,8 @@ acceptedConnectionStream
     Rx.fromEvent(socket, "startClick")
         .subscribe(function () {
         serverFSM.clientStart();
+    });
+    socket.on("lobbyRequest", function () {
+        serverFSM.lobbyRequest(socket);
     });
 });

@@ -50,9 +50,6 @@ module.exports = {
     sendTimerData();
     updateMovementData();
   },
-
-  end() {
-  }
 }
 
 function initialize(io: SocketIO.Server) {
@@ -111,15 +108,25 @@ function assignRoles(server: SocketIO.Server) {
 function getDirectionData() {
   Object.values(server.sockets.connected)
     .forEach((socket: SocketIO.Socket) => {
-      fromEvent(socket, "directionChange").pipe(
-        map((direction: string) => {
-          return { player: connectionsToRole[socket.id], direction: direction };
-        }),
-        takeWhile(() => !gameEnd)
-      ).subscribe(({player, direction}) => {
-        characterData[player]["gamepadDirection"] = direction;
-      });
+      subscribeToDirectionalData(socket);
     });
+}
+
+function subscribeToDirectionalData(socket: SocketIO.Socket) {
+  fromEvent(socket, "directionChange").pipe(
+    map((direction: string) => {
+      return { player: connectionsToRole[socket.id], direction: direction };
+    }),
+    takeWhile(() => !gameEnd)
+  ).subscribe({
+    next: ({player, direction}) => {
+      characterData[player]["gamepadDirection"] = direction;
+    },
+    error: () => {},
+    completed: () => {
+      console.log("Directional Data listener complete.");
+    },
+  })
 }
 
 function sendTimerData() {
@@ -137,23 +144,22 @@ function sendTimerData() {
         },
         error: (err: any) => console.log("Timer error" + err),
         complete: () => {
-          server.emit("gameEnd", "Time ran out. chasers win!");
-          gameEnd = true;
+          endGame("Time ran out. Chasers win!");
+          console.log("Timer has completed!");
         }
       });
 }
 
-function updateMovementData() {
-  const observable = interval(40);
-  observable.pipe(
+function updateMovementData(): void {
+  interval(40).pipe(
     takeWhile(() => !gameEnd)
-  ).subscribe((value) => {
+  ).subscribe({
+    next: (value) => {
       // Recalculate directions
       if (value % 8 == 0) {
         handleCoin();
         setDirectionFromGamepad();
         handlePowerup();
-        console.log(characterData);
       }
 
       moveCharactersSinglePixel();
@@ -162,9 +168,12 @@ function updateMovementData() {
       handleCollision();
       // Emit a position update
       server.emit("positionUpdate", characterData);
-    })
-
-    return observable;
+    },
+    error: (err: any) => {},
+    complete: () => {
+      console.log("Movement Updater complete");
+    }
+  });
 }
 
 function handleCoin() {
@@ -180,8 +189,7 @@ function handleCoin() {
 
 function handleEndState() {
   if (tilemap.coinsEmpty()) {
-    gameEnd = true;
-    server.emit("gameEnd", "All coins are collected! Chasee wins!")
+    endGame("All coins are collected! Chasee wins!");
   }
 }
 
@@ -334,8 +342,7 @@ function handleCollision(): void {
       })
   } else {
     if (collidedCharacters().length !== 0) {
-      server.emit("gameEnd", "Chasee tagged! Chasers win!");
-      gameEnd = true;
+      endGame("Chasee tagged! Chasers win!")
     }
   }
 }
@@ -350,4 +357,24 @@ function collidedCharacters(): Array<string> {
       else 
         return acc;
     }, [])
+}
+
+// Ends the game
+function endGame(message: string) {
+  server.emit("gameEnd", message);
+  gameEnd = true;
+  clearTimeout(invisibleTimerId);
+  clearTimeout(reverseTimerId);
+
+  removeSocketListeners();
+
+  global['serverFSM'].gameEnd();
+}
+
+function removeSocketListeners() {
+  console.log("Removing Socket Listeners.")
+  Object.values(server.sockets.connected)
+    .forEach((socket: SocketIO.Socket) => {
+      socket.removeAllListeners("ready");
+    })
 }

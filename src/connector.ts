@@ -9,6 +9,7 @@ console.log("Listening on port: 3000");
 
 // Initialize ServerFSM instance
 let serverFSM: ServerFSM = new fsm(io);
+global['serverFSM'] = serverFSM;
 
 // Listen to connection events
 let connectionStream = Rx.fromEvent(io, "connection");
@@ -55,4 +56,8 @@ acceptedConnectionStream
       .subscribe(() => {
         serverFSM.clientStart();
       });
+
+    socket.on("lobbyRequest", () => {
+      serverFSM.lobbyRequest(socket);
+    });
   });

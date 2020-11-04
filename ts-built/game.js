@@ -35,8 +35,6 @@ module.exports = {
         getDirectionData();
         sendTimerData();
         updateMovementData();
-    },
-    end: function () {
     }
 };
 function initialize(io) {
@@ -79,6 +77,7 @@ function assignRoles(server) {
         var socket = assignment.socket, role = assignment.role;
         connectionsToRole[socket.id] = role;
         socket.on("ready", function () {
+            console.log("Sending role: " + role);
             socket.emit("role", role);
         });
     });
@@ -87,12 +86,21 @@ function assignRoles(server) {
 function getDirectionData() {
     Object.values(server.sockets.connected)
         .forEach(function (socket) {
-        fromEvent(socket, "directionChange").pipe(map(function (direction) {
-            return { player: connectionsToRole[socket.id], direction: direction };
-        }), takeWhile(function () { return !gameEnd; })).subscribe(function (_a) {
+        subscribeToDirectionalData(socket);
+    });
+}
+function subscribeToDirectionalData(socket) {
+    fromEvent(socket, "directionChange").pipe(map(function (direction) {
+        return { player: connectionsToRole[socket.id], direction: direction };
+    }), takeWhile(function () { return !gameEnd; })).subscribe({
+        next: function (_a) {
             var player = _a.player, direction = _a.direction;
             characterData[player]["gamepadDirection"] = direction;
-        });
+        },
+        error: function () { },
+        completed: function () {
+            console.log("Directional Data listener complete.");
+        }
     });
 }
 function sendTimerData() {
@@ -105,28 +113,31 @@ function sendTimerData() {
         },
         error: function (err) { return console.log("Timer error" + err); },
         complete: function () {
-            server.emit("gameEnd", "Time ran out. chasers win!");
-            gameEnd = true;
+            endGame("Time ran out. Chasers win!");
+            console.log("Timer has completed!");
         }
     });
 }
 function updateMovementData() {
-    var observable = interval(40);
-    observable.pipe(takeWhile(function () { return !gameEnd; })).subscribe(function (value) {
-        // Recalculate directions
-        if (value % 8 == 0) {
-            handleCoin();
-            setDirectionFromGamepad();
-            handlePowerup();
-            console.log(characterData);
+    interval(40).pipe(takeWhile(function () { return !gameEnd; })).subscribe({
+        next: function (value) {
+            // Recalculate directions
+            if (value % 8 == 0) {
+                handleCoin();
+                setDirectionFromGamepad();
+                handlePowerup();
+            }
+            moveCharactersSinglePixel();
+            collidedCharacters();
+            handleCollision();
+            // Emit a position update
+            server.emit("positionUpdate", characterData);
+        },
+        error: function (err) { },
+        complete: function () {
+            console.log("Movement Updater complete");
         }
-        moveCharactersSinglePixel();
-        collidedCharacters();
-        handleCollision();
-        // Emit a position update
-        server.emit("positionUpdate", characterData);
     });
-    return observable;
 }
 function handleCoin() {
     var _a = characterData.chasee, x = _a.x, y = _a.y;
@@ -140,8 +151,7 @@ function handleCoin() {
 }
 function handleEndState() {
     if (tilemap.coinsEmpty()) {
-        gameEnd = true;
-        server.emit("gameEnd", "All coins are collected! Chasee wins!");
+        endGame("All coins are collected! Chasee wins!");
     }
 }
 function handlePowerup() {
@@ -276,8 +286,7 @@ function handleCollision() {
     }
     else {
         if (collidedCharacters().length !== 0) {
-            server.emit("gameEnd", "Chasee tagged! Chasers win!");
-            gameEnd = true;
+            endGame("Chasee tagged! Chasers win!");
         }
     }
 }
@@ -295,4 +304,20 @@ function collidedCharacters() {
         else
             return acc;
     }, []);
+}
+// Ends the game
+function endGame(message) {
+    server.emit("gameEnd", message);
+    gameEnd = true;
+    clearTimeout(invisibleTimerId);
+    clearTimeout(reverseTimerId);
+    removeSocketListeners();
+    global['serverFSM'].gameEnd();
+}
+function removeSocketListeners() {
+    console.log("Removing Socket Listeners.");
+    Object.values(server.sockets.connected)
+        .forEach(function (socket) {
+        socket.removeAllListeners("ready");
+    });
 }
