@@ -1,9 +1,17 @@
+var __spreadArrays = (this && this.__spreadArrays) || function () {
+    for (var s = 0, i = 0, il = arguments.length; i < il; i++) s += arguments[i].length;
+    for (var r = Array(s), k = 0, i = 0; i < il; i++)
+        for (var a = arguments[i], j = 0, jl = a.length; j < jl; j++, k++)
+            r[k] = a[j];
+    return r;
+};
 // Module that start and end an instance of a  game
 var _a = require("rxjs"), interval = _a.interval, fromEvent = _a.fromEvent, from = _a.from;
 var _b = require("rxjs/operators"), map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap;
 var playerLocations = require("./playerLocations");
 var _ = require("lodash");
 var tilemap = require("./tilemap");
+var hasCollided = require("./collisionCalc").hasCollided;
 var TILE_SIZE = 8;
 var server;
 // Map of socket-id to data about their player
@@ -75,7 +83,7 @@ function getDirectionData() {
     });
 }
 function sendTimerData() {
-    var observable = interval(1000).pipe(take(120), scan(function (acc, cur) { return acc - 1; }, 121), map(function (timeLeft) {
+    var observable = interval(1000).pipe(take(150), scan(function (acc, cur) { return acc - 1; }, 151), map(function (timeLeft) {
         var sec = "" + timeLeft % 60;
         return Math.trunc(timeLeft / 60) + ":" + sec.padStart(2, "0");
     }));
@@ -86,43 +94,61 @@ function sendTimerData() {
     return observable;
 }
 function updateMovementData() {
-    var observable = interval(55);
+    var observable = interval(40);
     observable
         .subscribe(function (value) {
         // Recalculate directions
         if (value % 8 == 0) {
+            handleCoin();
             setDirectionFromGamepad();
         }
-        // Move one pixel
-        Object.keys(characterData)
-            .forEach(function (character) {
-            switch (characterData[character].actualDirection) {
-                case "up":
-                    characterData[character].y--;
-                    break;
-                case "down":
-                    characterData[character].y++;
-                    break;
-                case "left":
-                    characterData[character].x--;
-                    break;
-                case "right":
-                    characterData[character].x++;
-                    break;
-                default:
-                    break;
-            }
-        });
+        moveCharactersSinglePixel();
+        console.log(collidedCharacters());
         // Emit a position update
         server.emit("positionUpdate", characterData);
     });
     return observable;
+}
+function handleCoin() {
+    var _a = characterData.chasee, x = _a.x, y = _a.y;
+    var tileX = Math.trunc(x / 8);
+    var tileY = Math.trunc(y / 8);
+    if (tilemap.tileHasCoin(tileX, tileY)) {
+        server.emit("coinRemoval", { tileX: tileX, tileY: tileY });
+        tilemap.removeCoin(tileX, tileY);
+        handleEndState();
+    }
+}
+function handleEndState() {
+    console.log("Checking End state... Unimplemented.");
 }
 function setDirectionFromGamepad() {
     Object.keys(characterData)
         .forEach(function (character) {
         setActualDirection(character);
         removeActualDirectionIfCantGo(character);
+    });
+}
+function moveCharactersSinglePixel() {
+    // Move one pixel
+    Object.keys(characterData)
+        .forEach(function (character) {
+        switch (characterData[character].actualDirection) {
+            case "up":
+                characterData[character].y--;
+                return;
+            case "down":
+                characterData[character].y++;
+                return;
+            case "left":
+                characterData[character].x--;
+                return;
+            case "right":
+                characterData[character].x++;
+                return;
+            default:
+                return;
+        }
     });
 }
 function setActualDirection(character) {
@@ -173,4 +199,19 @@ function executeCallbackIfCanGo(character, direction, callbackIfTrue, callbackIf
         default:
             return;
     }
+}
+// Returns list of names who collided with chasee
+function collidedCharacters() {
+    return Object.entries(characterData)
+        .filter(function (_a) {
+        var key = _a[0], value = _a[1];
+        return key !== 'chasee';
+    })
+        .reduce(function (acc, _a) {
+        var key = _a[0], value = _a[1];
+        if (hasCollided(value, characterData['chasee']))
+            return __spreadArrays(acc, [key]);
+        else
+            return acc;
+    }, []);
 }

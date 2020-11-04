@@ -2,7 +2,7 @@
 var fs = require("fs");
 var _ = require("lodash");
 // Grab json
-var rawdata = fs.readFileSync("../assets/ClassicMap.json");
+var rawdata = fs.readFileSync("assets/ClassicMap.json");
 var tileMap = JSON.parse(rawdata);
 var mapOfTileMaps = tileMap.layers.reduce(function (acc, cur) {
     acc[cur.name] = cur;

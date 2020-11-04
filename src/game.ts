@@ -4,6 +4,7 @@ const { map, filter, zip, take, scan, tap } = require("rxjs/operators");
 const playerLocations = require("./playerLocations");
 var _ = require("lodash");
 const tilemap = require("./tilemap");
+const { hasCollided } = require("./collisionCalc");
 
 const TILE_SIZE = 8;
 
@@ -101,8 +102,8 @@ function getDirectionData() {
 
 function sendTimerData() {
   const observable = interval(1000).pipe(
-    take(120),
-    scan((acc: number, cur: number): number => acc - 1, 121),
+    take(150),
+    scan((acc: number, cur: number): number => acc - 1, 151),
     map((timeLeft: number): string => {
       const sec = `${timeLeft%60}`;
       return `${Math.trunc(timeLeft/60)}:${sec.padStart(2, "0")}`;
@@ -117,44 +118,38 @@ function sendTimerData() {
 }
 
 function updateMovementData() {
-  const observable = interval(55);
+  const observable = interval(40);
   observable
     .subscribe((value) => {
       // Recalculate directions
       if (value % 8 == 0) {
+        handleCoin();
         setDirectionFromGamepad();
       }
 
-      // Move one pixel
-      Object.keys(characterData)
-        .forEach((character) => {
-          switch (characterData[character].actualDirection) {
-            case "up":
-              characterData[character].y--;
-              break;
+      moveCharactersSinglePixel();
 
-            case "down":
-              characterData[character].y++;
-              break;
-
-            case "left":
-              characterData[character].x--;
-              break;
-
-            case "right":
-              characterData[character].x++;
-              break;
-            
-            default:
-              break;
-          }
-        })
-
+      console.log(collidedCharacters());
       // Emit a position update
       server.emit("positionUpdate", characterData);
     })
 
     return observable;
+}
+
+function handleCoin() {
+  const { x, y } = characterData.chasee;
+  let tileX = Math.trunc(x/8);
+  let tileY = Math.trunc(y/8);
+  if (tilemap.tileHasCoin(tileX, tileY)) {
+    server.emit("coinRemoval", {tileX: tileX, tileY: tileY});
+    tilemap.removeCoin(tileX, tileY);
+    handleEndState();
+  }
+}
+
+function handleEndState() {
+  console.log("Checking End state... Unimplemented.");
 }
 
 function setDirectionFromGamepad() {
@@ -163,6 +158,33 @@ function setDirectionFromGamepad() {
       setActualDirection(character);
       removeActualDirectionIfCantGo(character);
     });
+}
+
+function moveCharactersSinglePixel() {
+  // Move one pixel
+  Object.keys(characterData)
+    .forEach((character) => {
+      switch (characterData[character].actualDirection) {
+        case "up":
+          characterData[character].y--;
+          return;
+
+        case "down":
+          characterData[character].y++;
+          return;
+
+        case "left":
+          characterData[character].x--;
+          return;
+
+        case "right":
+          characterData[character].x++;
+          return;
+        
+        default:
+          return;
+      }
+    })
 }
 
 function setActualDirection(character: string) {
@@ -217,5 +239,17 @@ function executeCallbackIfCanGo(character: string, direction: string | undefined
     default:
       return;
   }
-  
 }
+
+// Returns list of names who collided with chasee
+function collidedCharacters(): Array<string> {
+  return Object.entries(characterData)
+    .filter(([key, value]) => key !== 'chasee')
+    .reduce((acc, [key, value]) => {
+      if (hasCollided(value as { x:number, y:number}, characterData['chasee']))
+        return [...acc, key];
+      else 
+        return acc;
+    }, [])
+}
+
