@@ -7,12 +7,16 @@ var __spreadArrays = (this && this.__spreadArrays) || function () {
 };
 // Module that start and end an instance of a  game
 var _a = require("rxjs"), interval = _a.interval, fromEvent = _a.fromEvent, from = _a.from;
-var _b = require("rxjs/operators"), map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap;
+var _b = require("rxjs/operators"), map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap, takeWhile = _b.takeWhile;
 var playerLocations = require("./playerLocations");
 var _ = require("lodash");
 var tilemap = require("./tilemap");
 var hasCollided = require("./collisionCalc").hasCollided;
-var TILE_SIZE = 8;
+// Hyper parameters
+var TILE_SIZE = 8; // in pixes
+var gameTime = 150; // in sec
+var reversalTime = 15000; // in msec
+var invisibleTime = 15000; // in msec
 var server;
 // Map of socket-id to data about their player
 var connectionsToGame;
@@ -20,6 +24,9 @@ var connectionsToGame;
 var characterData;
 // List of observables to unsubscribe
 var observables;
+// States
+var reversed;
+var gameEnd;
 module.exports = {
     start: function (io) {
         // Reset variables
@@ -32,6 +39,8 @@ module.exports = {
             chaser2: {},
             chaser3: {}
         };
+        reversed = false;
+        gameEnd = false;
         assignCharacterLocations();
         assignRoles(server);
         getDirectionData();
@@ -73,37 +82,41 @@ function assignRoles(server) {
 function getDirectionData() {
     Object.values(server.sockets.connected)
         .forEach(function (socket) {
-        var observable = fromEvent(socket, "directionChange").pipe(map(function (direction) {
+        fromEvent(socket, "directionChange").pipe(map(function (direction) {
             return { player: connectionsToGame[socket.id].role, direction: direction };
-        }));
-        observable.subscribe(function (_a) {
+        }), takeWhile(function () { return !gameEnd; })).subscribe(function (_a) {
             var player = _a.player, direction = _a.direction;
             characterData[player]["gamepadDirection"] = direction;
         });
     });
 }
 function sendTimerData() {
-    var observable = interval(1000).pipe(take(150), scan(function (acc, cur) { return acc - 1; }, 151), map(function (timeLeft) {
+    interval(1000).pipe(take(gameTime), scan(function (acc, cur) { return acc - 1; }, gameTime), map(function (timeLeft) {
         var sec = "" + timeLeft % 60;
         return Math.trunc(timeLeft / 60) + ":" + sec.padStart(2, "0");
-    }));
-    observable
-        .subscribe(function (timeLeft) {
-        server.emit("timerUpdate", timeLeft);
+    }), takeWhile(function () { return !gameEnd; })).subscribe({
+        next: function (timeLeft) {
+            server.emit("timerUpdate", timeLeft);
+        },
+        error: function (err) { return console.log("Timer error" + err); },
+        complete: function () {
+            server.emit("gameEnd", "Time ran out. chasers win!");
+            gameEnd = true;
+        }
     });
-    return observable;
 }
 function updateMovementData() {
     var observable = interval(40);
-    observable
-        .subscribe(function (value) {
+    observable.pipe(takeWhile(function () { return !gameEnd; })).subscribe(function (value) {
         // Recalculate directions
         if (value % 8 == 0) {
             handleCoin();
             setDirectionFromGamepad();
+            handlePowerup();
         }
         moveCharactersSinglePixel();
-        console.log(collidedCharacters());
+        collidedCharacters();
+        handleCollision();
         // Emit a position update
         server.emit("positionUpdate", characterData);
     });
@@ -120,11 +133,58 @@ function handleCoin() {
     }
 }
 function handleEndState() {
-    console.log("Checking End state... Unimplemented.");
+    if (tilemap.coinsEmpty()) {
+        gameEnd = true;
+        server.emit("gameEnd", "All coins are collected! Chasee wins!");
+    }
+}
+function handlePowerup() {
+    var _a = characterData["chasee"], x = _a.x, y = _a.y;
+    var tileX = Math.trunc(x / 8);
+    var tileY = Math.trunc(y / 8);
+    handleReversePowerup(tileX, tileY);
+    handleInvisiblePowerup(tileX, tileY);
+}
+var invisibleTimerId;
+function handleInvisiblePowerup(tileX, tileY) {
+    if (tilemap.getPowerup(tileX, tileY) === "invisible") {
+        // Start invisible
+        server.emit("startInvisible", { tileX: tileX, tileY: tileY });
+        tilemap.removePowerup(tileX, tileY);
+        console.log("Invisible powerup");
+        // Clear old timeout if exists
+        clearTimeout(invisibleTimerId);
+        // End invisible
+        invisibleTimerId = setTimeout(function () {
+            console.log("Invisible powerup end");
+            server.emit("endInvisible");
+        }, invisibleTime);
+    }
+}
+var reverseTimerId;
+function handleReversePowerup(tileX, tileY) {
+    if (tilemap.getPowerup(tileX, tileY) === "reverse") {
+        // Start reversal
+        server.emit("startReversal", { tileX: tileX, tileY: tileY });
+        reversed = true;
+        tilemap.removePowerup(tileX, tileY);
+        console.log("Reversal powerup");
+        // Clear old timeout if exists
+        clearTimeout(reverseTimerId);
+        // End a reversal sometime later
+        reverseTimerId = setTimeout(function () {
+            console.log("Reversal powerup end");
+            server.emit("endReversal");
+            reversed = false;
+        }, reversalTime);
+    }
 }
 function setDirectionFromGamepad() {
     Object.keys(characterData)
         .forEach(function (character) {
+        // Do nothing if the character is dead
+        if (characterData[character] === undefined)
+            return;
         setActualDirection(character);
         removeActualDirectionIfCantGo(character);
     });
@@ -198,6 +258,21 @@ function executeCallbackIfCanGo(character, direction, callbackIfTrue, callbackIf
             return;
         default:
             return;
+    }
+}
+function handleCollision() {
+    if (reversed) {
+        collidedCharacters()
+            .forEach(function (character) {
+            delete characterData[character];
+            server.emit("death", character);
+        });
+    }
+    else {
+        if (collidedCharacters().length !== 0) {
+            server.emit("gameEnd", "Chasee tagged! Chasers win!");
+            gameEnd = true;
+        }
     }
 }
 // Returns list of names who collided with chasee

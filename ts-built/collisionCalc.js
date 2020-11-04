@@ -4,6 +4,6 @@ function euclideanDistance(a, b) {
 }
 module.exports = {
     hasCollided: function (a, b) {
-        return euclideanDistance(a, b) < 4;
+        return euclideanDistance(a, b) < 3;
     }
 };

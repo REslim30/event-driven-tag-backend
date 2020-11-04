@@ -1,12 +1,16 @@
 // Module that start and end an instance of a  game
 const { interval, fromEvent, from } = require("rxjs");
-const { map, filter, zip, take, scan, tap } = require("rxjs/operators");
+const { map, filter, zip, take, scan, tap, takeWhile } = require("rxjs/operators");
 const playerLocations = require("./playerLocations");
 var _ = require("lodash");
 const tilemap = require("./tilemap");
 const { hasCollided } = require("./collisionCalc");
 
-const TILE_SIZE = 8;
+// Hyper parameters
+const TILE_SIZE = 8; // in pixes
+const gameTime = 150; // in sec
+const reversalTime = 15000; // in msec
+const invisibleTime = 15000; // in msec
 
 let server: SocketIO.Server;
 
@@ -18,6 +22,10 @@ let characterData: any;
 
 // List of observables to unsubscribe
 let observables: Array<any>;
+
+// States
+let reversed: boolean;
+let gameEnd: boolean;
 
 module.exports = {
   start(io: SocketIO.Server) {
@@ -31,6 +39,8 @@ module.exports = {
       chaser2: {},
       chaser3: {}
     };
+    reversed = false;
+    gameEnd = false;
 
 
     assignCharacterLocations();
@@ -81,7 +91,6 @@ function assignRoles(server: SocketIO.Server) {
     socket.on("ready", () => {
       socket.emit("role", role);
     });
-
   });
 }
 
@@ -89,47 +98,54 @@ function assignRoles(server: SocketIO.Server) {
 function getDirectionData() {
   Object.values(server.sockets.connected)
     .forEach((socket: SocketIO.Socket) => {
-      const observable = fromEvent(socket, "directionChange").pipe(
+      fromEvent(socket, "directionChange").pipe(
         map((direction: string) => {
           return { player: connectionsToGame[socket.id].role, direction: direction };
-        })
-      )
-      observable.subscribe(({player, direction}) => {
+        }),
+        takeWhile(() => !gameEnd)
+      ).subscribe(({player, direction}) => {
         characterData[player]["gamepadDirection"] = direction;
       });
     });
 }
 
 function sendTimerData() {
-  const observable = interval(1000).pipe(
-    take(150),
-    scan((acc: number, cur: number): number => acc - 1, 151),
+  interval(1000).pipe(
+    take(gameTime),
+    scan((acc: number, cur: number): number => acc - 1, gameTime),
     map((timeLeft: number): string => {
       const sec = `${timeLeft%60}`;
       return `${Math.trunc(timeLeft/60)}:${sec.padStart(2, "0")}`;
-    })
-  );
-  observable
-    .subscribe((timeLeft: string) => {
-      server.emit("timerUpdate", timeLeft);
-    });
-
-  return observable;
+    }),
+    takeWhile(() => !gameEnd)
+  ).subscribe({
+        next: (timeLeft: string) => {
+          server.emit("timerUpdate", timeLeft);
+        },
+        error: (err: any) => console.log("Timer error" + err),
+        complete: () => {
+          server.emit("gameEnd", "Time ran out. chasers win!");
+          gameEnd = true;
+        }
+      });
 }
 
 function updateMovementData() {
   const observable = interval(40);
-  observable
-    .subscribe((value) => {
+  observable.pipe(
+    takeWhile(() => !gameEnd)
+  ).subscribe((value) => {
       // Recalculate directions
       if (value % 8 == 0) {
         handleCoin();
         setDirectionFromGamepad();
+        handlePowerup();
       }
 
       moveCharactersSinglePixel();
 
-      console.log(collidedCharacters());
+      collidedCharacters();
+      handleCollision();
       // Emit a position update
       server.emit("positionUpdate", characterData);
     })
@@ -149,12 +165,66 @@ function handleCoin() {
 }
 
 function handleEndState() {
-  console.log("Checking End state... Unimplemented.");
+  if (tilemap.coinsEmpty()) {
+    gameEnd = true;
+    server.emit("gameEnd", "All coins are collected! Chasee wins!")
+  }
+}
+
+function handlePowerup() {
+  const { x, y } = characterData["chasee"];
+  const tileX: number = Math.trunc(x/8);
+  const tileY: number = Math.trunc(y/8);
+  handleReversePowerup(tileX, tileY);
+  handleInvisiblePowerup(tileX, tileY);
+}
+
+let invisibleTimerId: any;
+function handleInvisiblePowerup(tileX: number, tileY: number) {
+  if (tilemap.getPowerup(tileX, tileY) === "invisible") {
+    // Start invisible
+    server.emit("startInvisible", { tileX: tileX, tileY: tileY});
+    tilemap.removePowerup(tileX, tileY);
+    console.log("Invisible powerup");
+
+    // Clear old timeout if exists
+    clearTimeout(invisibleTimerId);
+
+    // End invisible
+    invisibleTimerId = setTimeout(() => {
+      console.log("Invisible powerup end")
+      server.emit("endInvisible");
+    }, invisibleTime);
+  }
+}
+
+let reverseTimerId: any;
+function handleReversePowerup(tileX: number, tileY: number) {
+  if (tilemap.getPowerup(tileX, tileY) === "reverse") {
+    // Start reversal
+    server.emit("startReversal", { tileX: tileX, tileY: tileY });
+    reversed = true;
+    tilemap.removePowerup(tileX, tileY);
+    console.log("Reversal powerup");
+
+    // Clear old timeout if exists
+    clearTimeout(reverseTimerId);
+
+    // End a reversal sometime later
+    reverseTimerId = setTimeout(() => {
+      console.log("Reversal powerup end");
+      server.emit("endReversal");
+      reversed = false;
+    }, reversalTime);
+  }
 }
 
 function setDirectionFromGamepad() {
   Object.keys(characterData)
     .forEach((character) => {
+      // Do nothing if the character is dead
+      if (characterData[character] === undefined)
+        return;
       setActualDirection(character);
       removeActualDirectionIfCantGo(character);
     });
@@ -241,6 +311,21 @@ function executeCallbackIfCanGo(character: string, direction: string | undefined
   }
 }
 
+function handleCollision(): void {
+  if (reversed) {
+    collidedCharacters()
+      .forEach((character: string) => {
+        delete characterData[character];     
+        server.emit("death", character);
+      })
+  } else {
+    if (collidedCharacters().length !== 0) {
+      server.emit("gameEnd", "Chasee tagged! Chasers win!");
+      gameEnd = true;
+    }
+  }
+}
+
 // Returns list of names who collided with chasee
 function collidedCharacters(): Array<string> {
   return Object.entries(characterData)
@@ -252,4 +337,3 @@ function collidedCharacters(): Array<string> {
         return acc;
     }, [])
 }
-

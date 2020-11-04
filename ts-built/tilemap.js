@@ -27,10 +27,28 @@ module.exports = {
     // Returns whether or not a character can move to a tile
     canGo: function (x, y) {
         return 0 != mapOfTileMaps["bottom"].data[y * tileMap.width + x];
+    },
+    // checks if coins are all gone
+    coinsEmpty: function () {
+        return coinSet.size === 0;
+    },
+    // Returns a powerup from a tile
+    getPowerup: function (x, y) {
+        switch (mapOfTileMaps["powerups"].data[y * tileMap.width + x]) {
+            case 16:
+                return "reverse";
+            case 24:
+                return "invisible";
+            default:
+                return null;
+        }
+    },
+    removePowerup: function (x, y) {
+        mapOfTileMaps["powerups"].data[y * tileMap.width + x] = 0;
     }
 };
 /* for (let x = 0; x < 28; x++) { */
 /*   for (let y = 0; y < 32; y++) { */
-/*     console.log(`x: ${x}    y:   ${y}   canGo?    ${module.exports.canGo(x, y)}`); */
+/*     console.log(`x: ${x}    y:   ${y}   powerups?    ${module.exports.getPowerup(x, y)}`); */
 /*   } */
 /* } */

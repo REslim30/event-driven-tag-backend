@@ -6,6 +6,6 @@ function euclideanDistance(a: { x:number, y:number }, b: { x: number, y:number }
 
 module.exports = {
   hasCollided(a: { x:number, y:number }, b: { x: number, y:number }): boolean {
-    return euclideanDistance(a, b) < 4
+    return euclideanDistance(a, b) < 3
   }
 }
