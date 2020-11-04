@@ -88,10 +88,12 @@ var ServerFSM = /** @class */ (function () {
                 throw Error("Undefined state in clientStart: " + this.state);
         }
     };
-    ServerFSM.prototype.gameEnd = function () {
+    ServerFSM.prototype.gameEnd = function (message) {
         switch (this.state) {
             case this.GAME:
                 console.log("Game Ended");
+                this.io.emit("gameEnd", message);
+                game.end();
                 this.next(this.LOBBY);
                 return;
             case this.LOBBY:

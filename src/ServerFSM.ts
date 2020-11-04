@@ -113,10 +113,12 @@ class ServerFSM {
     }
   }
 
-  public gameEnd(): void{
+  public gameEnd(message: string): void{
     switch (this.state) {
       case this.GAME:
         console.log("Game Ended");
+        this.io.emit("gameEnd", message);
+        game.end();
         this.next(this.LOBBY);
         return;
 

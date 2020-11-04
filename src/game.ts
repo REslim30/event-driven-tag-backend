@@ -50,6 +50,14 @@ module.exports = {
     sendTimerData();
     updateMovementData();
   },
+
+  // Executes shutdown sequence
+  end() {
+    gameEnd = true;
+    clearTimeout(invisibleTimerId);
+    clearTimeout(reverseTimerId);
+    removeSocketListeners();
+  }
 }
 
 function initialize(io: SocketIO.Server) {
@@ -94,14 +102,18 @@ function assignRoles(server: SocketIO.Server) {
       return { socket: arr[0], role: arr[1] }
     })
   ).subscribe((assignment: any) => {
+    assignSocketARole(assignment);
+  });
+}
+
+function assignSocketARole(assignment: any) {
     const { socket, role } = assignment;
 
     connectionsToRole[socket.id] = role;
-
+    
     socket.on("ready", () => {
       socket.emit("role", role);
     });
-  });
 }
 
 // Stream direction data into connectionsToRole
@@ -361,14 +373,7 @@ function collidedCharacters(): Array<string> {
 
 // Ends the game
 function endGame(message: string) {
-  server.emit("gameEnd", message);
-  gameEnd = true;
-  clearTimeout(invisibleTimerId);
-  clearTimeout(reverseTimerId);
-
-  removeSocketListeners();
-
-  global['serverFSM'].gameEnd();
+  global['serverFSM'].gameEnd(message);
 }
 
 function removeSocketListeners() {
