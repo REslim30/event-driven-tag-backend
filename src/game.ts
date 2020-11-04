@@ -1,9 +1,8 @@
 // Module that start and end an instance of a  game
 const { interval, fromEvent, from } = require("rxjs");
 const { map, filter, zip, take, scan, tap, takeWhile } = require("rxjs/operators");
-const playerLocations = require("./playerLocations");
-var _ = require("lodash");
-const tilemap = require("./tilemap");
+var { shuffle } = require("lodash");
+const TileMap = require("./tilemap");
 const { hasCollided } = require("./collisionCalc");
 
 // Hyper parameters
@@ -15,10 +14,23 @@ const invisibleTime = 15000; // in msec
 let server: SocketIO.Server;
 
 // Map of socket-id to data about their player
-let connectionsToGame: any;
+let connectionsToRole: Map<string, string>;
+
+interface Character {
+  x: number,
+  y: number,
+  gamepadDirection?: "up" | "down" | "left" | "right",
+  actualDirection?: "up" | "down" | "left" | "right"
+}
 
 // Data about specific characters
-let characterData: any;
+let characterData: {
+  chasee: Character,
+  chaser0: Character,
+  chaser1: Character,
+  chaser2: Character,
+  chaser3: Character,
+};
 
 // List of observables to unsubscribe
 let observables: Array<any>;
@@ -27,40 +39,41 @@ let observables: Array<any>;
 let reversed: boolean;
 let gameEnd: boolean;
 
+// Map
+let tilemap: typeof TileMap;
+
 module.exports = {
   start(io: SocketIO.Server) {
     // Reset variables
-    server = io;
-    connectionsToGame = {};
-    characterData = {
-      chasee: {},
-      chaser0: {},
-      chaser1: {},
-      chaser2: {},
-      chaser3: {}
-    };
-    reversed = false;
-    gameEnd = false;
-
-
-    assignCharacterLocations();
-
-    assignRoles(server);
-
+    initialize(io);
     getDirectionData();
-
     sendTimerData();
-
     updateMovementData();
   },
 
   end() {
-      
   }
 }
 
+function initialize(io: SocketIO.Server) {
+  server = io;
+  connectionsToRole = new Map<string,string>();
+  reversed = false;
+  gameEnd = false;
+  tilemap = new TileMap();
+  characterData = {
+    chasee: { x: -1, y: -1 },
+    chaser0: { x: -1, y: -1 },
+    chaser1: { x: -1, y: -1 },
+    chaser2: { x: -1, y: -1 },
+    chaser3: { x: -1, y: -1 },
+  } 
+  assignCharacterLocations();
+  assignRoles(server);
+}
+
 function assignCharacterLocations() {
-  Object.entries(playerLocations)
+  Object.entries(tilemap.characterLocations)
     .forEach(([key, value]) => {
       characterData[key]['x'] = (<any>value).tileX*TILE_SIZE + (TILE_SIZE/2);
       characterData[key]['y'] = (<any>value).tileY*TILE_SIZE + (TILE_SIZE/2);
@@ -72,21 +85,21 @@ function assignCharacterLocations() {
 function assignRoles(server: SocketIO.Server) {
   // Get array of sockets and array of roles
   const connected = Object.values(server.sockets.connected);
-  const roles = Object.keys(playerLocations)
+  const roles = Object.keys(tilemap.characterLocations)
     .filter((value: any, index: number) => {
       return index < connected.length;
     });
 
   // For each socket send a role
   from(connected).pipe(
-    zip(from(_.shuffle(roles))),
+    zip(from(shuffle(roles))),
     map((arr: any[]) => {
       return { socket: arr[0], role: arr[1] }
     })
   ).subscribe((assignment: any) => {
     const { socket, role } = assignment;
 
-    connectionsToGame[socket.id] = { role: role };
+    connectionsToRole[socket.id] = role;
 
     socket.on("ready", () => {
       socket.emit("role", role);
@@ -94,13 +107,13 @@ function assignRoles(server: SocketIO.Server) {
   });
 }
 
-// Stream direction data into connectionsToGame
+// Stream direction data into connectionsToRole
 function getDirectionData() {
   Object.values(server.sockets.connected)
     .forEach((socket: SocketIO.Socket) => {
       fromEvent(socket, "directionChange").pipe(
         map((direction: string) => {
-          return { player: connectionsToGame[socket.id].role, direction: direction };
+          return { player: connectionsToRole[socket.id], direction: direction };
         }),
         takeWhile(() => !gameEnd)
       ).subscribe(({player, direction}) => {
@@ -140,6 +153,7 @@ function updateMovementData() {
         handleCoin();
         setDirectionFromGamepad();
         handlePowerup();
+        console.log(characterData);
       }
 
       moveCharactersSinglePixel();

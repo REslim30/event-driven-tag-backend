@@ -2,47 +2,68 @@
 const fs = require("fs");
 var _ = require("lodash");
 
-// Grab json
-let rawdata = fs.readFileSync("assets/ClassicMap.json");
-let tileMap = JSON.parse(rawdata);
 
-let mapOfTileMaps = tileMap.layers.reduce((acc, cur) => {
-  acc[cur.name] = cur
-  return acc;
-}, {});
 
-// coinSet contains all the coins available.
-// Stored as y*tileMap.width + x;
-let coinSet: Set<number> = mapOfTileMaps["coins"].data.reduce((acc: Set<number>, cur: number, idx: number) => {
-  if (cur == 8)
-    acc.add(idx); 
-  return acc;
-}, new Set<number>());
+module.exports = class TileMap {
+  private mapOfTileMaps;
+  private coinSet: Set<number>;
+  private readonly width: number = 28;
+  private readonly height: number = 36;
+  // Locations of players
+  public readonly characterLocations: {
+    chasee: { tileX: number, tileY: number },
+    chaser0: { tileX: number, tileY: number },
+    chaser1: { tileX: number, tileY: number },
+    chaser2: { tileX: number, tileY: number },
+    chaser3: { tileX: number, tileY: number },
+  } = {
+    chasee: { tileX: 13, tileY: 23 },
+    chaser0: { tileX: 11, tileY: 12 },
+    chaser1: { tileX: 13, tileY: 13 },
+    chaser2: { tileX: 14, tileY: 13 },
+    chaser3: { tileX: 16, tileY: 12 },
+  }
 
-module.exports = {
+  constructor() {
+    const tileMap = JSON.parse(fs.readFileSync("assets/ClassicMap.json"));
+
+    this.mapOfTileMaps = tileMap.layers.reduce((acc, cur) => {
+      acc[cur.name] = cur
+      return acc;
+    }, {});
+
+    // coinSet contains all the coins available.
+    // Stored as y*tileMap.width + x;
+    this.coinSet = this.mapOfTileMaps["coins"].data.reduce((acc: Set<number>, cur: number, idx: number) => {
+      if (cur == 8)
+        acc.add(idx); 
+      return acc;
+    }, new Set<number>());
+  }
+
   // Returns whether or not there is a coin on a particular tile
   tileHasCoin(x: number, y: number): boolean {
-    return coinSet.has(y*tileMap.width + x);
-  },
+    return this.coinSet.has(y*this.width + x);
+  }
 
   // Removes a coin
   removeCoin(x: number, y: number): void {
-    coinSet.delete(y*tileMap.width + x);
-  },
+    this.coinSet.delete(y*this.width + x);
+  }
 
   // Returns whether or not a character can move to a tile
   canGo(x: number, y: number): boolean {
-    return 0 != mapOfTileMaps["bottom"].data[y*tileMap.width + x];
-  },
+    return 0 != this.mapOfTileMaps["bottom"].data[y*this.width + x];
+  }
 
   // checks if coins are all gone
   coinsEmpty(): boolean {
-    return coinSet.size === 0;
-  },
+    return this.coinSet.size === 0;
+  }
 
   // Returns a powerup from a tile
   getPowerup(x: number, y:number): "reverse"|"invisible"|null {
-    switch (mapOfTileMaps["powerups"].data[y*tileMap.width + x]) {
+    switch (this.mapOfTileMaps["powerups"].data[y*this.width + x]) {
       case 16:
         return "reverse";
       
@@ -52,11 +73,12 @@ module.exports = {
       default:
         return null
     }
-  },
+  }
 
   removePowerup(x: number, y:number): void {
-    mapOfTileMaps["powerups"].data[y*tileMap.width + x] = 0;
+    this.mapOfTileMaps["powerups"].data[y*this.width + x] = 0;
   }
+
 }
 
 
