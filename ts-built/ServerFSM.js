@@ -1,4 +1,4 @@
-var game = require("./game");
+var game = require("./game/game");
 //Implementaiton of serverFSM you can find on logbook
 var ServerFSM = /** @class */ (function () {
     function ServerFSM(server) {

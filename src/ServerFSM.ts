@@ -1,4 +1,4 @@
-const game = require("./game");
+const game = require("./game/game");
 
 //Implementaiton of serverFSM you can find on logbook
 class ServerFSM {
