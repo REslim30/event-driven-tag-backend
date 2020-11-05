@@ -6,8 +6,8 @@ var __spreadArrays = (this && this.__spreadArrays) || function () {
     return r;
 };
 // Module that start and end an instance of a  game
-var _a = require("rxjs"), interval = _a.interval, fromEvent = _a.fromEvent, from = _a.from;
-var _b = require("rxjs/operators"), map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap, takeWhile = _b.takeWhile;
+var _a = require("rxjs"), Subject = _a.Subject, interval = _a.interval, fromEvent = _a.fromEvent, from = _a.from, Observable = _a.Observable;
+var _b = require("rxjs/operators"), map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap, takeUntil = _b.takeUntil;
 var shuffle = require("lodash").shuffle;
 var TileMap = require("./tilemap");
 var hasCollided = require("./collisionCalc").hasCollided;
@@ -21,24 +21,27 @@ var server;
 var connectionsToRole;
 // Data about specific characters
 var characterData;
-// List of observables to unsubscribe
-var observables;
 // States
 var reversed;
-var gameEnd;
 // Map
 var tilemap;
 module.exports = {
+    // Subject we use to end our streams
+    endStream: null,
+    // Initialize game
     start: function (io) {
-        // Reset variables
+        this.endStream = new Subject();
+        // sync initialization
         initialize(io);
-        getDirectionData();
-        sendTimerData();
-        updateMovementData();
+        // async initialization
+        getDirectionData(this.endStream);
+        sendTimerData(this.endStream);
+        updateMovementData(this.endStream);
     },
     // Executes shutdown sequence
     end: function () {
-        gameEnd = true;
+        this.endStream.next();
+        this.endStream.complete();
         clearTimeout(invisibleTimerId);
         clearTimeout(reverseTimerId);
         removeSocketListeners();
@@ -48,7 +51,6 @@ function initialize(io) {
     server = io;
     connectionsToRole = new Map();
     reversed = false;
-    gameEnd = false;
     tilemap = new TileMap();
     characterData = {
         chasee: { x: -1, y: -1 },
@@ -77,7 +79,7 @@ function assignRoles(server) {
         .filter(function (value, index) {
         return index < connected.length;
     });
-    // For each socket send a role
+    // For each socket assign a role
     from(connected).pipe(zip(from(shuffle(roles))), map(function (arr) {
         return { socket: arr[0], role: arr[1] };
     })).subscribe(function (assignment) {
@@ -92,16 +94,16 @@ function assignSocketARole(assignment) {
     });
 }
 // Stream direction data into connectionsToRole
-function getDirectionData() {
+function getDirectionData(endStream) {
     Object.values(server.sockets.connected)
         .forEach(function (socket) {
-        subscribeToDirectionalData(socket);
+        subscribeToDirectionalData(socket, endStream);
     });
 }
-function subscribeToDirectionalData(socket) {
-    fromEvent(socket, "directionChange").pipe(map(function (direction) {
+function subscribeToDirectionalData(socket, endStream) {
+    fromEvent(socket, "directionChange").pipe(takeUntil(endStream), map(function (direction) {
         return { player: connectionsToRole[socket.id], direction: direction };
-    }), takeWhile(function () { return !gameEnd; })).subscribe({
+    })).subscribe({
         next: function (_a) {
             var player = _a.player, direction = _a.direction;
             characterData[player]["gamepadDirection"] = direction;
@@ -112,11 +114,11 @@ function subscribeToDirectionalData(socket) {
         }
     });
 }
-function sendTimerData() {
+function sendTimerData(endStream) {
     interval(1000).pipe(take(gameTime), scan(function (acc, cur) { return acc - 1; }, gameTime), map(function (timeLeft) {
         var sec = "" + timeLeft % 60;
         return Math.trunc(timeLeft / 60) + ":" + sec.padStart(2, "0");
-    }), takeWhile(function () { return !gameEnd; })).subscribe({
+    }), takeUntil(endStream)).subscribe({
         next: function (timeLeft) {
             server.emit("timerUpdate", timeLeft);
         },
@@ -127,8 +129,8 @@ function sendTimerData() {
         }
     });
 }
-function updateMovementData() {
-    interval(40).pipe(takeWhile(function () { return !gameEnd; })).subscribe({
+function updateMovementData(endStream) {
+    interval(40).pipe(takeUntil(endStream)).subscribe({
         next: function (value) {
             // Recalculate directions
             if (value % 8 == 0) {
@@ -288,5 +290,6 @@ function removeSocketListeners() {
     Object.values(server.sockets.connected)
         .forEach(function (socket) {
         socket.removeAllListeners("ready");
+        socket.removeAllListeners("directionChange");
     });
 }

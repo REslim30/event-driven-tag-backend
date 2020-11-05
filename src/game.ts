@@ -1,6 +1,6 @@
 // Module that start and end an instance of a  game
-const { interval, fromEvent, from } = require("rxjs");
-const { map, filter, zip, take, scan, tap, takeWhile } = require("rxjs/operators");
+const { Subject, interval, fromEvent, from, Observable } = require("rxjs");
+const { map, filter, zip, take, scan, tap, takeUntil } = require("rxjs/operators");
 var { shuffle } = require("lodash");
 const TileMap = require("./tilemap");
 const { hasCollided } = require("./collisionCalc");
@@ -32,28 +32,34 @@ let characterData: {
   chaser3: Character,
 };
 
-// List of observables to unsubscribe
-let observables: Array<any>;
-
 // States
 let reversed: boolean;
-let gameEnd: boolean;
 
 // Map
 let tilemap: typeof TileMap;
 
 module.exports = {
+  // Subject we use to end our streams
+  endStream: null,
+
+  // Initialize game
   start(io: SocketIO.Server) {
-    // Reset variables
+    this.endStream = new Subject();
+
+    // sync initialization
     initialize(io);
-    getDirectionData();
-    sendTimerData();
-    updateMovementData();
+
+    // async initialization
+    getDirectionData(this.endStream);
+    sendTimerData(this.endStream);
+    updateMovementData(this.endStream);
   },
 
   // Executes shutdown sequence
   end() {
-    gameEnd = true;
+    this.endStream.next();
+    this.endStream.complete();
+
     clearTimeout(invisibleTimerId);
     clearTimeout(reverseTimerId);
     removeSocketListeners();
@@ -64,7 +70,6 @@ function initialize(io: SocketIO.Server) {
   server = io;
   connectionsToRole = new Map<string,string>();
   reversed = false;
-  gameEnd = false;
   tilemap = new TileMap();
   characterData = {
     chasee: { x: -1, y: -1 },
@@ -95,7 +100,7 @@ function assignRoles(server: SocketIO.Server) {
       return index < connected.length;
     });
 
-  // For each socket send a role
+  // For each socket assign a role
   from(connected).pipe(
     zip(from(shuffle(roles))),
     map((arr: any[]) => {
@@ -117,19 +122,19 @@ function assignSocketARole(assignment: any) {
 }
 
 // Stream direction data into connectionsToRole
-function getDirectionData() {
+function getDirectionData(endStream: typeof Observable) {
   Object.values(server.sockets.connected)
     .forEach((socket: SocketIO.Socket) => {
-      subscribeToDirectionalData(socket);
+      subscribeToDirectionalData(socket, endStream);
     });
 }
 
-function subscribeToDirectionalData(socket: SocketIO.Socket) {
+function subscribeToDirectionalData(socket: SocketIO.Socket, endStream: typeof Observable) {
   fromEvent(socket, "directionChange").pipe(
+    takeUntil(endStream),
     map((direction: string) => {
       return { player: connectionsToRole[socket.id], direction: direction };
     }),
-    takeWhile(() => !gameEnd)
   ).subscribe({
     next: ({player, direction}) => {
       characterData[player]["gamepadDirection"] = direction;
@@ -141,7 +146,7 @@ function subscribeToDirectionalData(socket: SocketIO.Socket) {
   })
 }
 
-function sendTimerData() {
+function sendTimerData(endStream: typeof Observable) {
   interval(1000).pipe(
     take(gameTime),
     scan((acc: number, cur: number): number => acc - 1, gameTime),
@@ -149,7 +154,7 @@ function sendTimerData() {
       const sec = `${timeLeft%60}`;
       return `${Math.trunc(timeLeft/60)}:${sec.padStart(2, "0")}`;
     }),
-    takeWhile(() => !gameEnd)
+    takeUntil(endStream)
   ).subscribe({
         next: (timeLeft: string) => {
           server.emit("timerUpdate", timeLeft);
@@ -162,9 +167,9 @@ function sendTimerData() {
       });
 }
 
-function updateMovementData(): void {
+function updateMovementData(endStream: typeof Observable): void {
   interval(40).pipe(
-    takeWhile(() => !gameEnd)
+    takeUntil(endStream)
   ).subscribe({
     next: (value) => {
       // Recalculate directions
@@ -344,5 +349,6 @@ function removeSocketListeners() {
   Object.values(server.sockets.connected)
     .forEach((socket: SocketIO.Socket) => {
       socket.removeAllListeners("ready");
+      socket.removeAllListeners("directionChange");
     })
 }

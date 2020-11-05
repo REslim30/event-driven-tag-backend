@@ -67,6 +67,7 @@ var ServerFSM = /** @class */ (function () {
                 this.lobby.splice(idx, 1);
                 // If lobby is empty then we should end game
                 if (this.lobby.length == 0) {
+                    game.end();
                     this.next(this.LOBBY);
                 }
                 this.io.emit("lobby", this.lobby);
