@@ -7,11 +7,14 @@ var __spreadArrays = (this && this.__spreadArrays) || function () {
 };
 // Module that start and end an instance of a  game
 var _a = require("rxjs"), Subject = _a.Subject, interval = _a.interval, fromEvent = _a.fromEvent, from = _a.from, Observable = _a.Observable;
-var _b = require("rxjs/operators"), map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap, takeUntil = _b.takeUntil;
+var _b = require("rxjs/operators"), debounceTime = _b.debounceTime, map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap, takeUntil = _b.takeUntil;
 var hasCollided = require("./collisionCalc").hasCollided;
 var GameRoundConstructor = require("./GameRound");
 var server;
 var gameRound;
+// Streams that handle reversal and invisible powerups
+var reversalStream;
+var invisibleStream;
 module.exports = {
     // Subject we use to end our streams
     endStream: null,
@@ -22,6 +25,7 @@ module.exports = {
         // sync initialization
         gameRound = new GameRoundConstructor(io);
         // async initialization
+        setPowerupEndStreams(this.endStream);
         getDirectionData(this.endStream);
         sendTimerData(this.endStream);
         updateMovementData(this.endStream);
@@ -30,11 +34,45 @@ module.exports = {
     end: function () {
         this.endStream.next();
         this.endStream.complete();
-        clearTimeout(invisibleTimerId);
-        clearTimeout(reverseTimerId);
         removeSocketListeners();
     }
 };
+function setPowerupEndStreams(endStream) {
+    setReversalStream(endStream);
+    setInvisibleStream(endStream);
+}
+function setReversalStream(endStream) {
+    reversalStream = new Subject();
+    reversalStream.pipe(takeUntil(endStream)).subscribe(function (_a) {
+        var tileX = _a.tileX, tileY = _a.tileY;
+        server.emit("startReversal", { tileX: tileX, tileY: tileY });
+        gameRound.reversed = true;
+        gameRound.tilemap.removePowerup(tileX, tileY);
+        console.log("Reversal powerup");
+    });
+    // End reversal only if chasee has gone gameRound.reversed without
+    // Any other reversal powerups
+    reversalStream.pipe(debounceTime(gameRound.reversalTime), takeUntil(endStream)).subscribe(function () {
+        console.log("Reversal powerup end");
+        server.emit("endReversal");
+        gameRound.reversed = false;
+    });
+}
+function setInvisibleStream(endStream) {
+    invisibleStream = new Subject();
+    invisibleStream.pipe(takeUntil(endStream)).subscribe(function (_a) {
+        var tileX = _a.tileX, tileY = _a.tileY;
+        server.emit("startInvisible", { tileX: tileX, tileY: tileY });
+        gameRound.tilemap.removePowerup(tileX, tileY);
+        console.log("Invisible powerup");
+    });
+    // Only endInvisible if chasee has gone x amount of time without
+    // Any other invisible powerup 
+    invisibleStream.pipe(takeUntil(endStream), debounceTime(gameRound.invisibleTime)).subscribe(function () {
+        console.log("Invisible powerup end");
+        server.emit("endInvisible");
+    });
+}
 // Stream direction data into connectionsToRole
 function getDirectionData(endStream) {
     Object.values(server.sockets.connected)
@@ -111,41 +149,11 @@ function handlePowerup() {
     var _a = gameRound.characterPosData["chasee"], x = _a.x, y = _a.y;
     var tileX = Math.trunc(x / 8);
     var tileY = Math.trunc(y / 8);
-    handleReversePowerup(tileX, tileY);
-    handleInvisiblePowerup(tileX, tileY);
-}
-var invisibleTimerId;
-function handleInvisiblePowerup(tileX, tileY) {
     if (gameRound.tilemap.getPowerup(tileX, tileY) === "invisible") {
-        // Start invisible
-        server.emit("startInvisible", { tileX: tileX, tileY: tileY });
-        gameRound.tilemap.removePowerup(tileX, tileY);
-        console.log("Invisible powerup");
-        // Clear old timeout if exists
-        clearTimeout(invisibleTimerId);
-        // End invisible
-        invisibleTimerId = setTimeout(function () {
-            console.log("Invisible powerup end");
-            server.emit("endInvisible");
-        }, gameRound.invisibleTime);
+        invisibleStream.next({ tileX: tileX, tileY: tileY });
     }
-}
-var reverseTimerId;
-function handleReversePowerup(tileX, tileY) {
     if (gameRound.tilemap.getPowerup(tileX, tileY) === "reverse") {
-        // Start reversal
-        server.emit("startReversal", { tileX: tileX, tileY: tileY });
-        gameRound.reversed = true;
-        gameRound.tilemap.removePowerup(tileX, tileY);
-        console.log("Reversal powerup");
-        // Clear old timeout if exists
-        clearTimeout(reverseTimerId);
-        // End a reversal sometime later
-        reverseTimerId = setTimeout(function () {
-            console.log("Reversal powerup end");
-            server.emit("endReversal");
-            gameRound.reversed = false;
-        }, gameRound.reversalTime);
+        reversalStream.next({ tileX: tileX, tileY: tileY });
     }
 }
 function setDirectionFromGamepad() {

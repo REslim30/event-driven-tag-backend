@@ -1,7 +1,7 @@
 // Script that initializes server and listens to connections
 // While registering events on the serverFSM
-const Rx = require("rxjs");
-const Op = require("rxjs/operators");
+var Rx = require("rxjs");
+var Op = require("rxjs/operators");
 const io: SocketIO.Server = require("socket.io")(3000);
 const fsm = require("./ServerFSM");
 
