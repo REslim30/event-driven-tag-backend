@@ -8,31 +8,19 @@ var __spreadArrays = (this && this.__spreadArrays) || function () {
 // Module that start and end an instance of a  game
 var _a = require("rxjs"), Subject = _a.Subject, interval = _a.interval, fromEvent = _a.fromEvent, from = _a.from, Observable = _a.Observable;
 var _b = require("rxjs/operators"), map = _b.map, filter = _b.filter, zip = _b.zip, take = _b.take, scan = _b.scan, tap = _b.tap, takeUntil = _b.takeUntil;
-var shuffle = require("lodash").shuffle;
-var TileMap = require("./tilemap");
 var hasCollided = require("./collisionCalc").hasCollided;
-// Hyper parameters
-var TILE_SIZE = 8; // in pixes
-var gameTime = 150; // in sec
-var reversalTime = 15000; // in msec
-var invisibleTime = 15000; // in msec
+var GameRoundConstructor = require("./GameRound");
 var server;
-// Map of socket-id to data about their player
-var connectionsToRole;
-// Data about specific characters
-var characterData;
-// States
-var reversed;
-// Map
-var tilemap;
+var gameRound;
 module.exports = {
     // Subject we use to end our streams
     endStream: null,
     // Initialize game
     start: function (io) {
+        server = io;
         this.endStream = new Subject();
         // sync initialization
-        initialize(io);
+        gameRound = new GameRoundConstructor(io);
         // async initialization
         getDirectionData(this.endStream);
         sendTimerData(this.endStream);
@@ -47,52 +35,6 @@ module.exports = {
         removeSocketListeners();
     }
 };
-function initialize(io) {
-    server = io;
-    connectionsToRole = new Map();
-    reversed = false;
-    tilemap = new TileMap();
-    characterData = {
-        chasee: { x: -1, y: -1 },
-        chaser0: { x: -1, y: -1 },
-        chaser1: { x: -1, y: -1 },
-        chaser2: { x: -1, y: -1 },
-        chaser3: { x: -1, y: -1 }
-    };
-    assignCharacterLocations();
-    assignRoles(server);
-}
-function assignCharacterLocations() {
-    Object.entries(tilemap.characterLocations)
-        .forEach(function (_a) {
-        var key = _a[0], value = _a[1];
-        characterData[key]['x'] = value.tileX * TILE_SIZE + (TILE_SIZE / 2);
-        characterData[key]['y'] = value.tileY * TILE_SIZE + (TILE_SIZE / 2);
-    });
-}
-// Assign roles to connected players. 
-// Ensure that at least one is chasee
-function assignRoles(server) {
-    // Get array of sockets and array of roles
-    var connected = Object.values(server.sockets.connected);
-    var roles = Object.keys(tilemap.characterLocations)
-        .filter(function (value, index) {
-        return index < connected.length;
-    });
-    // For each socket assign a role
-    from(connected).pipe(zip(from(shuffle(roles))), map(function (arr) {
-        return { socket: arr[0], role: arr[1] };
-    })).subscribe(function (assignment) {
-        assignSocketARole(assignment);
-    });
-}
-function assignSocketARole(assignment) {
-    var socket = assignment.socket, role = assignment.role;
-    connectionsToRole[socket.id] = role;
-    socket.on("ready", function () {
-        socket.emit("role", role);
-    });
-}
 // Stream direction data into connectionsToRole
 function getDirectionData(endStream) {
     Object.values(server.sockets.connected)
@@ -102,11 +44,11 @@ function getDirectionData(endStream) {
 }
 function subscribeToDirectionalData(socket, endStream) {
     fromEvent(socket, "directionChange").pipe(takeUntil(endStream), map(function (direction) {
-        return { player: connectionsToRole[socket.id], direction: direction };
+        return { player: gameRound.connectionsToRole[socket.id], direction: direction };
     })).subscribe({
         next: function (_a) {
             var player = _a.player, direction = _a.direction;
-            characterData[player]["gamepadDirection"] = direction;
+            gameRound.characterPosData[player]["gamepadDirection"] = direction;
         },
         error: function () { },
         completed: function () {
@@ -115,7 +57,7 @@ function subscribeToDirectionalData(socket, endStream) {
     });
 }
 function sendTimerData(endStream) {
-    interval(1000).pipe(take(gameTime), scan(function (acc, cur) { return acc - 1; }, gameTime), map(function (timeLeft) {
+    interval(1000).pipe(take(gameRound.gameTime), scan(function (acc, cur) { return acc - 1; }, gameRound.gameTime), map(function (timeLeft) {
         var sec = "" + timeLeft % 60;
         return Math.trunc(timeLeft / 60) + ":" + sec.padStart(2, "0");
     }), takeUntil(endStream)).subscribe({
@@ -142,7 +84,7 @@ function updateMovementData(endStream) {
             collidedCharacters();
             handleCollision();
             // Emit a position update
-            server.emit("positionUpdate", characterData);
+            server.emit("positionUpdate", gameRound.characterPosData);
         },
         error: function (err) { },
         complete: function () {
@@ -151,22 +93,22 @@ function updateMovementData(endStream) {
     });
 }
 function handleCoin() {
-    var _a = characterData.chasee, x = _a.x, y = _a.y;
+    var _a = gameRound.characterPosData.chasee, x = _a.x, y = _a.y;
     var tileX = Math.trunc(x / 8);
     var tileY = Math.trunc(y / 8);
-    if (tilemap.tileHasCoin(tileX, tileY)) {
+    if (gameRound.tilemap.tileHasCoin(tileX, tileY)) {
         server.emit("coinRemoval", { tileX: tileX, tileY: tileY });
-        tilemap.removeCoin(tileX, tileY);
+        gameRound.tilemap.removeCoin(tileX, tileY);
         handleEndState();
     }
 }
 function handleEndState() {
-    if (tilemap.coinsEmpty()) {
+    if (gameRound.tilemap.coinsEmpty()) {
         endGame("All coins are collected! Chasee wins!");
     }
 }
 function handlePowerup() {
-    var _a = characterData["chasee"], x = _a.x, y = _a.y;
+    var _a = gameRound.characterPosData["chasee"], x = _a.x, y = _a.y;
     var tileX = Math.trunc(x / 8);
     var tileY = Math.trunc(y / 8);
     handleReversePowerup(tileX, tileY);
@@ -174,10 +116,10 @@ function handlePowerup() {
 }
 var invisibleTimerId;
 function handleInvisiblePowerup(tileX, tileY) {
-    if (tilemap.getPowerup(tileX, tileY) === "invisible") {
+    if (gameRound.tilemap.getPowerup(tileX, tileY) === "invisible") {
         // Start invisible
         server.emit("startInvisible", { tileX: tileX, tileY: tileY });
-        tilemap.removePowerup(tileX, tileY);
+        gameRound.tilemap.removePowerup(tileX, tileY);
         console.log("Invisible powerup");
         // Clear old timeout if exists
         clearTimeout(invisibleTimerId);
@@ -185,16 +127,16 @@ function handleInvisiblePowerup(tileX, tileY) {
         invisibleTimerId = setTimeout(function () {
             console.log("Invisible powerup end");
             server.emit("endInvisible");
-        }, invisibleTime);
+        }, gameRound.invisibleTime);
     }
 }
 var reverseTimerId;
 function handleReversePowerup(tileX, tileY) {
-    if (tilemap.getPowerup(tileX, tileY) === "reverse") {
+    if (gameRound.tilemap.getPowerup(tileX, tileY) === "reverse") {
         // Start reversal
         server.emit("startReversal", { tileX: tileX, tileY: tileY });
-        reversed = true;
-        tilemap.removePowerup(tileX, tileY);
+        gameRound.reversed = true;
+        gameRound.tilemap.removePowerup(tileX, tileY);
         console.log("Reversal powerup");
         // Clear old timeout if exists
         clearTimeout(reverseTimerId);
@@ -202,15 +144,15 @@ function handleReversePowerup(tileX, tileY) {
         reverseTimerId = setTimeout(function () {
             console.log("Reversal powerup end");
             server.emit("endReversal");
-            reversed = false;
-        }, reversalTime);
+            gameRound.reversed = false;
+        }, gameRound.reversalTime);
     }
 }
 function setDirectionFromGamepad() {
-    Object.keys(characterData)
+    Object.keys(gameRound.characterPosData)
         .forEach(function (character) {
         // Do nothing if the character is dead
-        if (characterData[character] === undefined)
+        if (gameRound.characterPosData[character] === undefined)
             return;
         setActualDirection(character);
         removeActualDirectionIfCantGo(character);
@@ -218,20 +160,20 @@ function setDirectionFromGamepad() {
 }
 function moveCharactersSinglePixel() {
     // Move one pixel
-    Object.keys(characterData)
+    Object.keys(gameRound.characterPosData)
         .forEach(function (character) {
-        switch (characterData[character].actualDirection) {
+        switch (gameRound.characterPosData[character].actualDirection) {
             case "up":
-                characterData[character].y--;
+                gameRound.characterPosData[character].y--;
                 return;
             case "down":
-                characterData[character].y++;
+                gameRound.characterPosData[character].y++;
                 return;
             case "left":
-                characterData[character].x--;
+                gameRound.characterPosData[character].x--;
                 return;
             case "right":
-                characterData[character].x++;
+                gameRound.characterPosData[character].x++;
                 return;
             default:
                 return;
@@ -240,23 +182,23 @@ function moveCharactersSinglePixel() {
 }
 // Change direction to gamepad direction only if it's ok
 function setActualDirection(character) {
-    var gamepadDirection = characterData[character].gamepadDirection;
-    tilemap.executeCallbackIfCanGo(characterData[character], gamepadDirection, function () {
-        characterData[character]["actualDirection"] = gamepadDirection;
+    var gamepadDirection = gameRound.characterPosData[character].gamepadDirection;
+    gameRound.tilemap.executeCallbackIfCanGo(gameRound.characterPosData[character], gamepadDirection, function () {
+        gameRound.characterPosData[character]["actualDirection"] = gamepadDirection;
     });
 }
 // Stop moving if we can't go
 function removeActualDirectionIfCantGo(character) {
-    var actualDirection = characterData[character].actualDirection;
-    tilemap.executeCallbackIfCanGo(characterData[character], actualDirection, function () { }, function () {
-        characterData[character]["actualDirection"] = undefined;
+    var actualDirection = gameRound.characterPosData[character].actualDirection;
+    gameRound.tilemap.executeCallbackIfCanGo(gameRound.characterPosData[character], actualDirection, function () { }, function () {
+        gameRound.characterPosData[character]["actualDirection"] = undefined;
     });
 }
 function handleCollision() {
-    if (reversed) {
+    if (gameRound.reversed) {
         collidedCharacters()
             .forEach(function (character) {
-            delete characterData[character];
+            delete gameRound.characterPosData[character];
             server.emit("death", character);
         });
     }
@@ -268,14 +210,14 @@ function handleCollision() {
 }
 // Returns list of names who collided with chasee
 function collidedCharacters() {
-    return Object.entries(characterData)
+    return Object.entries(gameRound.characterPosData)
         .filter(function (_a) {
         var key = _a[0], value = _a[1];
         return key !== 'chasee';
     })
         .reduce(function (acc, _a) {
         var key = _a[0], value = _a[1];
-        if (hasCollided(value, characterData['chasee']))
+        if (hasCollided(value, gameRound.characterPosData['chasee']))
             return __spreadArrays(acc, [key]);
         else
             return acc;
