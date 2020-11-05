@@ -56,6 +56,42 @@ module.exports = /** @class */ (function () {
     TileMap.prototype.removePowerup = function (x, y) {
         this.mapOfTileMaps["powerups"].data[y * this.width + x] = 0;
     };
+    TileMap.prototype.executeCallbackIfCanGo = function (character, direction, callbackIfTrue, callbackIfFalse) {
+        if (callbackIfTrue === void 0) { callbackIfTrue = function () { }; }
+        if (callbackIfFalse === void 0) { callbackIfFalse = function () { }; }
+        var x = character.x, y = character.y;
+        var tileX = Math.trunc(x / 8);
+        var tileY = Math.trunc(y / 8);
+        // Only change actual direction if we can move
+        switch (direction) {
+            case "up":
+                if (this.canGo(tileX, tileY - 1))
+                    callbackIfTrue();
+                else
+                    callbackIfFalse();
+                return;
+            case "down":
+                if (this.canGo(tileX, tileY + 1))
+                    callbackIfTrue();
+                else
+                    callbackIfFalse();
+                return;
+            case "left":
+                if (this.canGo(tileX - 1, tileY))
+                    callbackIfTrue();
+                else
+                    callbackIfFalse();
+                return;
+            case "right":
+                if (this.canGo(tileX + 1, tileY))
+                    callbackIfTrue();
+                else
+                    callbackIfFalse();
+                return;
+            default:
+                return;
+        }
+    };
     return TileMap;
 }());
 /* for (let x = 0; x < 28; x++) { */

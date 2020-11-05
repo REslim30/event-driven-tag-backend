@@ -79,6 +79,45 @@ module.exports = class TileMap {
     this.mapOfTileMaps["powerups"].data[y*this.width + x] = 0;
   }
 
+
+  executeCallbackIfCanGo(character: { x: number, y: number}, direction: string | undefined, callbackIfTrue = ()=>{}, callbackIfFalse=()=>{}) {
+    const { x, y } = character;
+    const tileX = Math.trunc(x/8);
+    const tileY = Math.trunc(y/8);
+    // Only change actual direction if we can move
+    switch (direction) {
+      case "up":
+        if (this.canGo(tileX,tileY-1))
+          callbackIfTrue();
+        else
+          callbackIfFalse();
+        return;
+      
+      case "down":
+        if (this.canGo(tileX, tileY+1))
+          callbackIfTrue();
+        else
+          callbackIfFalse();
+        return
+      
+      case "left":
+        if (this.canGo(tileX-1,tileY))
+          callbackIfTrue();
+        else
+          callbackIfFalse();
+        return;
+      
+      case "right":
+        if (this.canGo(tileX+1,tileY))
+          callbackIfTrue();
+        else
+          callbackIfFalse();
+        return;
+      
+      default:
+        return;
+    }
+  }
 }
 
 

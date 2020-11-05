@@ -291,9 +291,10 @@ function moveCharactersSinglePixel() {
     })
 }
 
+// Change direction to gamepad direction only if it's ok
 function setActualDirection(character: string) {
   const { gamepadDirection } = characterData[character];
-  executeCallbackIfCanGo(character, gamepadDirection, () => {
+  tilemap.executeCallbackIfCanGo(characterData[character], gamepadDirection, () => {
     characterData[character]["actualDirection"] = gamepadDirection;
   });
 }
@@ -301,49 +302,11 @@ function setActualDirection(character: string) {
 // Stop moving if we can't go
 function removeActualDirectionIfCantGo(character: string) {
   const { actualDirection } = characterData[character];
-  executeCallbackIfCanGo(character, actualDirection, () => {}, () => {
+  tilemap.executeCallbackIfCanGo(characterData[character], actualDirection, () => {}, () => {
     characterData[character]["actualDirection"] = undefined;
   });
 }
 
-function executeCallbackIfCanGo(character: string, direction: string | undefined, callbackIfTrue = ()=>{}, callbackIfFalse=()=>{}) {
-  const { x, y } = characterData[character];
-  const tileX = Math.trunc(x/8);
-  const tileY = Math.trunc(y/8);
-  // Only change actual direction if we can move
-  switch (direction) {
-    case "up":
-      if (tilemap.canGo(tileX,tileY-1))
-        callbackIfTrue();
-      else
-        callbackIfFalse();
-      return;
-    
-    case "down":
-      if (tilemap.canGo(tileX, tileY+1))
-        callbackIfTrue();
-      else
-        callbackIfFalse();
-      return
-    
-    case "left":
-      if (tilemap.canGo(tileX-1,tileY))
-        callbackIfTrue();
-      else
-        callbackIfFalse();
-      return;
-    
-    case "right":
-      if (tilemap.canGo(tileX+1,tileY))
-        callbackIfTrue();
-      else
-        callbackIfFalse();
-      return;
-    
-    default:
-      return;
-  }
-}
 
 function handleCollision(): void {
   if (reversed) {

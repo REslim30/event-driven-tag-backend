@@ -236,54 +236,19 @@ function moveCharactersSinglePixel() {
         }
     });
 }
+// Change direction to gamepad direction only if it's ok
 function setActualDirection(character) {
     var gamepadDirection = characterData[character].gamepadDirection;
-    executeCallbackIfCanGo(character, gamepadDirection, function () {
+    tilemap.executeCallbackIfCanGo(characterData[character], gamepadDirection, function () {
         characterData[character]["actualDirection"] = gamepadDirection;
     });
 }
 // Stop moving if we can't go
 function removeActualDirectionIfCantGo(character) {
     var actualDirection = characterData[character].actualDirection;
-    executeCallbackIfCanGo(character, actualDirection, function () { }, function () {
+    tilemap.executeCallbackIfCanGo(characterData[character], actualDirection, function () { }, function () {
         characterData[character]["actualDirection"] = undefined;
     });
-}
-function executeCallbackIfCanGo(character, direction, callbackIfTrue, callbackIfFalse) {
-    if (callbackIfTrue === void 0) { callbackIfTrue = function () { }; }
-    if (callbackIfFalse === void 0) { callbackIfFalse = function () { }; }
-    var _a = characterData[character], x = _a.x, y = _a.y;
-    var tileX = Math.trunc(x / 8);
-    var tileY = Math.trunc(y / 8);
-    // Only change actual direction if we can move
-    switch (direction) {
-        case "up":
-            if (tilemap.canGo(tileX, tileY - 1))
-                callbackIfTrue();
-            else
-                callbackIfFalse();
-            return;
-        case "down":
-            if (tilemap.canGo(tileX, tileY + 1))
-                callbackIfTrue();
-            else
-                callbackIfFalse();
-            return;
-        case "left":
-            if (tilemap.canGo(tileX - 1, tileY))
-                callbackIfTrue();
-            else
-                callbackIfFalse();
-            return;
-        case "right":
-            if (tilemap.canGo(tileX + 1, tileY))
-                callbackIfTrue();
-            else
-                callbackIfFalse();
-            return;
-        default:
-            return;
-    }
 }
 function handleCollision() {
     if (reversed) {
